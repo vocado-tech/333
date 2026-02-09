@@ -8,11 +8,10 @@ from openai import OpenAI
 # -----------------------------------------------------------------------------
 # 1. 기본 설정 (Page Config & Session State)
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="AI 습관 트래커", page_icon="📊", layout="wide")
+st.set_page_config(page_title="AI 습관 트래커", page_icon="🔮", layout="wide")
 
-# 세션 상태 초기화 (기록 저장용)
+# 세션 상태 초기화
 if 'history' not in st.session_state:
-    # 데모용 6일 샘플 데이터 생성
     today = datetime.now().date()
     sample_data = []
     for i in range(6, 0, -1):
@@ -24,6 +23,10 @@ if 'history' not in st.session_state:
         })
     st.session_state['history'] = sample_data
 
+# 타로 카드 결과 저장용 세션
+if 'tarot_result' not in st.session_state:
+    st.session_state['tarot_result'] = None
+
 # -----------------------------------------------------------------------------
 # 2. 사이드바 (API Key 입력)
 # -----------------------------------------------------------------------------
@@ -33,12 +36,13 @@ with st.sidebar:
     weather_api_key = st.text_input("OpenWeatherMap API Key", type="password")
     st.markdown("---")
     st.info("💡 API 키가 있어야 리포트 생성이 가능합니다.")
+    st.warning("타로 기능은 습관 60% 이상 달성 시 해금됩니다!")
 
 # -----------------------------------------------------------------------------
 # 3. 메인 타이틀 및 UI 구성
 # -----------------------------------------------------------------------------
-st.title("📊 AI 습관 트래커")
-st.markdown("매일의 작은 습관이 미래를 만듭니다. AI 코치와 함께 성장하세요!")
+st.title("📊 AI 습관 트래커 & 타로")
+st.markdown("매일의 작은 습관이 미래를 만듭니다. 60% 이상 달성하고 운세를 점쳐보세요!")
 
 col_ui, col_chart = st.columns([1, 1])
 
@@ -46,7 +50,6 @@ col_ui, col_chart = st.columns([1, 1])
 with col_ui:
     st.subheader("📝 오늘의 체크인")
     
-    # 습관 리스트
     habits = [
         ("🌅 기상 미션", "mission_morning"),
         ("💧 물 마시기", "drink_water"),
@@ -55,7 +58,6 @@ with col_ui:
         ("💤 수면", "sleep_well")
     ]
     
-    # 체크박스 2열 배치
     checked_habits = []
     habit_cols = st.columns(2)
     
@@ -67,7 +69,6 @@ with col_ui:
 
     st.markdown("---")
     
-    # 기분, 도시, 코치 스타일
     mood_score = st.slider("오늘의 기분은?", 1, 10, 5)
     
     cities = ["Seoul", "Busan", "Incheon", "Daegu", "Daejeon", "Gwangju", "Suwon", "Ulsan", "Jeju", "Gangneung"]
@@ -86,13 +87,11 @@ with col_chart:
     # 달성률 계산
     completion_rate = int((len(checked_habits) / 5) * 100)
     
-    # Metric 카드 3개
     m1, m2, m3 = st.columns(3)
     m1.metric("오늘 달성률", f"{completion_rate}%")
     m2.metric("완료한 습관", f"{len(checked_habits)}개")
     m3.metric("오늘의 기분", f"{mood_score}/10")
     
-    # 차트 데이터 구성 (과거 6일 + 오늘)
     chart_data = st.session_state['history'].copy()
     chart_data.append({
         "날짜": datetime.now().strftime("%Y-%m-%d"),
@@ -101,20 +100,18 @@ with col_chart:
     })
     
     df_chart = pd.DataFrame(chart_data)
-    
-    # 바 차트 표시
     st.bar_chart(df_chart, x="날짜", y=["달성률", "기분"])
 
 # -----------------------------------------------------------------------------
-# 4. API 연동 함수
+# 4. API 연동 함수 (Tarot 추가됨)
 # -----------------------------------------------------------------------------
 def get_weather(city, api_key):
-    """OpenWeatherMap API에서 날씨 정보 가져오기"""
+    """OpenWeatherMap API (에러 디버깅 포함)"""
     if not api_key:
         return None
     url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&lang=kr&units=metric"
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
             return {
@@ -122,27 +119,45 @@ def get_weather(city, api_key):
                 "desc": data["weather"][0]["description"],
                 "main": data["weather"][0]["main"]
             }
+        else:
+            # 디버깅용 에러 출력 (실제 배포 시엔 로그로 변경 권장)
+            print(f"Weather API Error: {response.status_code}, {response.text}")
     except Exception as e:
-        print(f"Weather API Error: {e}")
+        print(f"Weather Connection Error: {e}")
     return None
 
 def get_dog_image():
-    """Dog CEO API에서 랜덤 강아지 사진 및 품종 가져오기"""
+    """Dog CEO API"""
     url = "https://dog.ceo/api/breeds/image/random"
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
             img_url = data['message']
-            # URL에서 품종 추출 (예: .../breeds/retriever-golden/...)
             breed = img_url.split('/')[-2].replace('-', ' ').title()
             return img_url, breed
     except Exception as e:
         print(f"Dog API Error: {e}")
     return None, None
 
-def generate_report(openai_key, style, habits, mood, rate, weather_info, dog_breed):
-    """OpenAI API를 사용하여 코칭 리포트 생성"""
+def get_tarot_card():
+    """Tarot API (무료)"""
+    url = "https://tarotapi.dev/api/v1/cards/random?n=1"
+    try:
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            card_data = response.json()['cards'][0]
+            return {
+                "name": card_data['name'],
+                "meaning": card_data['meaning_up'],
+                "desc": card_data['desc']
+            }
+    except Exception as e:
+        return {"name": "The Fool", "meaning": "새로운 시작 (API 연결 실패로 기본값 제공)", "desc": ""}
+    return None
+
+def generate_report(openai_key, style, habits, mood, rate, weather_info, dog_breed, tarot_card):
+    """OpenAI API (gpt-4o-mini 수정됨)"""
     client = OpenAI(api_key=openai_key)
     
     system_prompts = {
@@ -151,91 +166,119 @@ def generate_report(openai_key, style, habits, mood, rate, weather_info, dog_bre
         "게임 마스터 🎲": "당신은 RPG 게임의 마스터입니다. 사용자는 모험가이며, 습관은 퀘스트입니다. 판타지 톤으로 말해주세요."
     }
     
-    weather_str = f"{weather_info['temp']}도, {weather_info['desc']}" if weather_info else "날씨 정보 없음"
-    dog_str = f"함께하는 파트너 강아지: {dog_breed}" if dog_breed else ""
+    weather_str = f"{weather_info['temp']}도, {weather_info['desc']}" if weather_info else "정보 없음"
+    dog_str = f"파트너 강아지: {dog_breed}" if dog_breed else ""
+    tarot_str = f"오늘의 타로: {tarot_card['name']} (의미: {tarot_card['meaning']})" if tarot_card else "타로 안 뽑음"
     
     prompt = f"""
     [사용자 정보]
-    - 달성한 습관: {', '.join(habits) if habits else '없음'}
-    - 달성률: {rate}%
-    - 기분 점수: {mood}/10
-    - 현재 날씨: {weather_str}
+    - 달성 습관: {', '.join(habits) if habits else '없음'} ({rate}%)
+    - 기분: {mood}/10
+    - 날씨: {weather_str}
     - {dog_str}
+    - {tarot_str}
 
-    위 정보를 바탕으로 다음 형식에 맞춰 리포트를 작성해줘:
-    1. 컨디션 등급: (S, A, B, C, D 중 하나)
-    2. 습관 분석: (현재 상태에 대한 피드백)
-    3. 날씨 코멘트: (날씨와 기분을 연결한 조언)
-    4. 내일 미션: (구체적인 행동 제안)
-    5. 오늘의 한마디: (스타일에 맞는 명언이나 대사)
+    위 정보를 바탕으로 리포트 작성:
+    1. 컨디션 등급 (S~D)
+    2. 습관 분석
+    3. 타로 운세 해석 (오늘의 노력과 타로 카드의 의미를 연결해서 해석해줘)
+    4. 내일 미션
+    5. 오늘의 한마디
     """
 
     try:
+        # 모델명 gpt-4o-mini로 변경 (안정성 확보)
         response = client.chat.completions.create(
-            model="gpt-4o-mini",  # 요청하신 모델명
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": system_prompts.get(style, "당신은 도움이 되는 AI 코치입니다.")},
+                {"role": "system", "content": system_prompts.get(style, "당신은 AI 코치입니다.")},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"리포트 생성 중 오류가 발생했습니다: {str(e)}"
+        return f"리포트 생성 오류: {str(e)}"
 
 # -----------------------------------------------------------------------------
-# 5. 결과 표시 및 리포트 생성 섹션
+# 5. 타로 카드 & 결과 표시 섹션
 # -----------------------------------------------------------------------------
+st.markdown("---")
+
+# [NEW] 타로 카드 섹션
+st.header("🔮 오늘의 신비한 타로")
+
+# 달성률 60% 체크
+if completion_rate >= 60:
+    st.success(f"축하합니다! 습관을 {completion_rate}% 달성하여 타로 카드가 해금되었습니다.")
+    
+    # 타로 뽑기 버튼
+    if st.button("운명의 카드 뽑기 🃏"):
+        with st.spinner("우주의 기운을 모으는 중..."):
+            card = get_tarot_card()
+            st.session_state['tarot_result'] = card
+            
+    # 뽑은 결과가 있으면 표시
+    if st.session_state['tarot_result']:
+        card = st.session_state['tarot_result']
+        t_col1, t_col2 = st.columns([1, 3])
+        with t_col1:
+            st.image("https://upload.wikimedia.org/wikipedia/commons/d/de/RWS_Tarot_01_Magician.jpg", 
+                     caption="Tarot Card (예시 이미지)", use_container_width=True) 
+            # 실제 API는 이미지를 잘 안 줘서, 분위기용 이미지를 넣거나 카드 이름에 맞는 이미지를 매핑해야 함.
+            # 여기서는 편의상 고정 이미지를 사용하거나 텍스트 위주로 보여줍니다.
+        with t_col2:
+            st.subheader(f"🎴 {card['name']}")
+            st.markdown(f"**의미:** {card['meaning']}")
+            st.info(f"**상세:** {card['desc'][:200]}...") # 너무 길면 자르기
+
+else:
+    st.warning(f"🔒 현재 달성률 {completion_rate}%입니다. 60% 이상 달성해야 타로 카드를 뽑을 수 있습니다!")
+    st.session_state['tarot_result'] = None # 조건 미달 시 리셋
+
 st.markdown("---")
 st.header("📢 AI 코칭 리포트")
 
-if st.button("컨디션 리포트 생성 ✨", type="primary"):
+# 리포트 생성 버튼
+if st.button("종합 리포트 생성 ✨", type="primary"):
     if not openai_api_key:
         st.error("⚠️ 사이드바에 OpenAI API Key를 입력해주세요.")
     else:
-        with st.spinner("AI 코치가 데이터를 분석하고 강아지를 부르고 있습니다... 🐶"):
-            # 1. API 호출
+        with st.spinner("AI가 데이터를 분석 중입니다..."):
             weather_data = get_weather(selected_city, weather_api_key)
             dog_url, dog_breed = get_dog_image()
             
-            # 2. 리포트 생성
+            # 타로 결과가 있으면 같이 보냄
+            current_tarot = st.session_state.get('tarot_result')
+            
             report_text = generate_report(
                 openai_api_key, coach_style, checked_habits, 
-                mood_score, completion_rate, weather_data, dog_breed
+                mood_score, completion_rate, weather_data, dog_breed, current_tarot
             )
             
-            # 3. 결과 화면 출력
             res_col1, res_col2 = st.columns([1, 2])
             
             with res_col1:
-                # 날씨 카드
                 if weather_data:
                     st.info(f"📍 {selected_city}\n\n🌡️ {weather_data['temp']}°C\n☁️ {weather_data['desc']}")
-                else:
-                    st.warning("날씨 정보를 가져오지 못했습니다.")
                 
-                # 강아지 카드
                 if dog_url:
                     st.image(dog_url, caption=f"오늘의 파트너: {dog_breed}", use_container_width=True)
-                else:
-                    st.warning("강아지 사진 로딩 실패")
             
             with res_col2:
-                # AI 리포트 출력
                 st.markdown(f"### {coach_style}의 분석")
                 st.markdown(report_text)
                 
-                # 공유용 텍스트
-                st.caption("📋 복사해서 공유하기")
-                share_text = f"[AI 습관 트래커] {datetime.now().strftime('%Y-%m-%d')}\n달성률: {completion_rate}% | 기분: {mood_score}\n코치: {coach_style}"
+                st.caption("📋 공유 텍스트")
+                share_text = f"[습관 트래커] 달성률: {completion_rate}% | 타로: {current_tarot['name'] if current_tarot else '미확인'}"
                 st.code(share_text)
 
 # -----------------------------------------------------------------------------
-# 6. 하단 API 안내
+# 6. 하단 안내
 # -----------------------------------------------------------------------------
-with st.expander("ℹ️ API 키 발급 안내"):
+with st.expander("ℹ️ API 및 기능 안내"):
     st.markdown("""
-    - **OpenAI API Key**: [OpenAI Platform](https://platform.openai.com/)에서 발급 가능합니다.
-    - **OpenWeatherMap API Key**: [OpenWeatherMap](https://openweathermap.org/)에서 무료 키를 발급받으세요.
-    - **Dog CEO API**: 별도의 키 없이 무료로 사용 가능합니다.
+    - **OpenAI**: gpt-4o-mini 모델을 사용합니다.
+    - **타로 기능**: 습관 달성률 60% 이상일 때 '타로 뽑기' 버튼이 활성화됩니다.
+    - **날씨 오류 시**: API Key가 활성화되었는지 확인하거나 도시 이름을 영어로 정확히 입력했는지 확인하세요.
     """)
