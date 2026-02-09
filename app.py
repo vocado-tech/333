@@ -172,7 +172,7 @@ def generate_report(openai_key, style, habits, mood, rate, weather_info, dog_bre
 
     try:
         response = client.chat.completions.create(
-            model="gpt-5-mini",  # 요청하신 모델명
+            model="gpt-4o-mini",  # 요청하신 모델명
             messages=[
                 {"role": "system", "content": system_prompts.get(style, "당신은 도움이 되는 AI 코치입니다.")},
                 {"role": "user", "content": prompt}
