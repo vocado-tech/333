@@ -146,11 +146,13 @@ def generate_fortune_report(openai_key, style, habits, mood, rate, weather, dog,
     if tarot:
         tarot_info = f"뽑은 카드: {tarot['name']}\n기본 의미: {tarot['meaning_up']}"
 
+    weather_desc = weather['desc'] if weather else '알 수 없음'
+
     prompt = f"""
     [사용자 데이터]
     - 달성 습관: {', '.join(habits) if habits else '없음'} (달성률: {rate}%)
     - 기분: {mood}/10
-    - 날씨: {weather['desc'] if weather else '알 수 없음'}
+    - 날씨: {weather_desc}
     - {tarot_info}
 
     위 정보를 바탕으로 아래 형식에 맞춰 서술형 리포트를 작성해 주세요.
@@ -232,7 +234,13 @@ if st.button("✨ 종합 운세 분석 결과 보기", type="primary"):
             r_col1, r_col2 = st.columns([1, 2])
             
             with r_col1:
-                st.success("분석 완료!")
+                # [수정됨] 날씨 정보 표시 박스 복구
+                if weather_data:
+                    st.info(f"📍 {selected_city}\n\n🌡️ {weather_data['temp']}°C\n☁️ {weather_data['desc']}")
+                else:
+                    st.warning("날씨 정보 없음")
+                
+                # 강아지 이미지
                 if dog_url:
                     st.image(dog_url, caption=f"행운의 파트너: {dog_breed}", use_container_width=True)
             
